@@ -46,7 +46,7 @@ cd frontend
 npm install
 npm run dev
 ```
-*Runs on: http://localhost:8080 or http://localhost:5173*
+*Runs on: http://localhost:8081 or http://localhost:5173*
 
 ### 🧠 Graph Theory & Algorithms
 
@@ -72,6 +72,15 @@ To verify the backend logic independently (ensure backend is running):
 ```bash
 python backend/test_app.py
 ```
+
+## 📊 Dataset & Setup
+
+The main dataset used for this project is too large to be hosted on GitHub. To run the analysis, follow these steps:
+
+1.  **Download the Dataset:** * Download the `PS_20174392719_1491204439457_log.csv` file. 
+    * *(Note: This is typically the Synthetic Financial Datasets for Fraud Detection from Kaggle).*
+2.  **Place the File:** * Drop the `.csv` file into the root directory: `C:\Users\harsh\Desktop\FinGraph_Forensics\`
+3.  **Run the App:** * Use the `start_app.bat` to launch the frontend and backend.
 
 ### ⚠️ Common Issues
 - **Port 8001/8080 in use**: Close other terminals or change the port in `main.py` and `frontend/src/services/api.ts`.
