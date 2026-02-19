@@ -1,7 +1,7 @@
 // src/services/api.ts
 import axios from 'axios';
 
-const API_BASE_URL = "http://127.0.0.1:8001";
+const API_BASE_URL = "https://money-muling-detection-47ze.onrender.com";
 
 export interface Transaction {
   transaction_id: string;
