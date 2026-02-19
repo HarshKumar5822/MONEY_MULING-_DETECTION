@@ -40,7 +40,7 @@ class SuspiciousAccount(BaseModel):
     account_id: str
     suspicion_score: float
     detected_patterns: List[str]
-    ring_id: Optional[str] = None
+    ring_id: str = ""
 
 class FraudRing(BaseModel):
     ring_id: str
@@ -75,145 +75,146 @@ def build_graph(df: pd.DataFrame) -> nx.DiGraph:
         )
     return G
 
-def detect_cycles(G: nx.DiGraph) -> List[List[str]]:
-    """Detects simple cycles of length 3, 4, and 5."""
-    try:
-        # strict limit on cycle length to 5 as per requirements to manage performance
-        # recursive_simple_cycles is often faster for small cycles but let's stick to simple_cycles with filtering
-        # Ideally, we would write a custom DFS for length limited cycles for very large graphs
-        # For < 10k transactions, basic simple_cycles might be okay but can blow up if highly connected.
-        # Let's use a slightly optimized approach: inspect cycles and filter.
+def detect_cycles(G: nx.DiGraph, max_len: int = 5) -> List[List[str]]:
+    """
+    Detects cycles of length 3 to max_len using a depth-limited DFS.
+    This is significantly faster than nx.simple_cycles for large sparse graphs
+    when we only care about small cycles.
+    """
+    cycles = []
+    nodes = list(G.nodes())
+    
+    # Pre-filter: only nodes with in-degree > 0 and out-degree > 0 can be in a cycle
+    potential_nodes = [n for n in nodes if G.in_degree(n) > 0 and G.out_degree(n) > 0]
+    subgraph = G.subgraph(potential_nodes)
+    
+    def dfs(v, start_node, path, depth):
+        if depth > max_len:
+            return
         
-        # Note: nx.simple_cycles generates all elementary cycles. 
-        # In a dense graph, this is exponential. 
-        # Requirement: "handle up to 10,000 transactions efficiently" and "Detect cycles of length 3, 4, and 5"
+        for neighbor in subgraph.neighbors(v):
+            if neighbor == start_node:
+                if len(path) >= 3:
+                    # Found a cycle! Sort to avoid duplicates (different start points)
+                    cycle = path[:]
+                    # To ensure uniqueness, we only add if start_node is the smallest ID
+                    # or use a canonical representation
+                    if start_node == min(cycle):
+                        cycles.append((cycle, f"cycle_length_{len(cycle)}"))
+            elif neighbor not in path:
+                # Limit depth search
+                if depth < max_len:
+                    path.append(neighbor)
+                    dfs(neighbor, start_node, path, depth + 1)
+                    path.pop()
+
+    for i, node in enumerate(potential_nodes):
+        dfs(node, node, [node], 1)
         
-        cycles = []
-        # optimization: compute only relevant cycles. 
-        # Since networkx doesn't support length limit in simple_cycles directly effectively for all versions,
-        # we will use a pragmatic approach: use simple_cycles but monitor time/count 
-        # OR iteratively search. 
-        # Given the contest constraints, let's try standard simple_cycles first but filter strictly.
-        
-        # A safer approach for "length 3-5" specifically is:
-        # iterate all nodes, do DFS/BFS up to depth 5.
-        
-        # Using a custom generator to avoid generating all if not needed
-        raw_cycles = nx.simple_cycles(G)
-        
-        # We need to be careful with "up to 10,000 transactions". 
-        # If the graph is dense, simple_cycles will hang. 
-        # Let's add a limit just in case, or use a more targeted search if needed.
-        # For now, we trust the "money muling" graph is suspicious but not a complete clique.
-        
-        count = 0
-        limit = 100000 # Safety break
-        
-        for cycle in raw_cycles:
-            if 3 <= len(cycle) <= 5:
-                cycles.append(cycle)
-            
-            count += 1
-            if count > limit:
-                break # Prevention of timeout
-                
-        return cycles
-    except Exception as e:
-        print(f"Cycle detection error: {e}")
-        return []
+    return cycles
 
 def detect_smurfing(df: pd.DataFrame) -> Dict[str, List[str]]:
     """
-    Detects Fan-in and Fan-out patterns with temporal analysis (72h window).
-    Returns a dict of account_id -> list of patterns detected.
+    Optimized Smurfing Detection with 72h window.
     """
     suspicious_patterns = {} # account_id -> [patterns]
     
-    # Ensure timestamp is datetime
+    if df.empty:
+        return suspicious_patterns
+
     if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
         df['timestamp'] = pd.to_datetime(df['timestamp'])
 
-    # Sort checks for efficient windowing
-    df_sorted = df.sort_values('timestamp')
-
-    # Fan-in: >10 unique senders to a receiver in 72h
-    # Group by receiver
-    for receiver, group in df_sorted.groupby('receiver_id'):
-        # We need to count unique senders within any 72h window
-        # Rolling window on time is tricky with pandas groupby directly for "unique count" efficiently
-        # Let's iterate: for each transaction, look back 72h.
+    # Fan-in Detection (Optimized)
+    # Group by receiver and process each efficiently
+    for receiver, group in df.groupby('receiver_id'):
+        if len(group) <= 10: continue # Basic hurdle
         
-        # Optimization: use a sliding window approach
-        # Create a list of (time, sender_id)
-        txs = list(zip(group['timestamp'], group['sender_id']))
-        
-        # Sliding window
+        txs = group.sort_values('timestamp')[['timestamp', 'sender_id']].values
         left = 0
-        unique_senders = {} # sender_id -> count in window
+        window_senders = {}
         
         for right in range(len(txs)):
-            current_time = txs[right][0]
-            current_sender = txs[right][1]
+            curr_time, curr_sender = txs[right]
+            window_senders[curr_sender] = window_senders.get(curr_sender, 0) + 1
             
-            # Add to window
-            unique_senders[current_sender] = unique_senders.get(current_sender, 0) + 1
-            
-            # Shrink window from left
-            while left < right and (current_time - txs[left][0] > timedelta(hours=72)):
-                removed_sender = txs[left][1]
-                unique_senders[removed_sender] -= 1
-                if unique_senders[removed_sender] == 0:
-                    del unique_senders[removed_sender]
+            while curr_time - txs[left][0] > pd.Timedelta(hours=72):
+                prev_sender = txs[left][1]
+                window_senders[prev_sender] -= 1
+                if window_senders[prev_sender] == 0:
+                    del window_senders[prev_sender]
                 left += 1
-            
-            if len(unique_senders) > 10:
-                receiver_str = str(receiver)
-                if receiver_str not in suspicious_patterns:
-                    suspicious_patterns[receiver_str] = []
-                if "fan_in" not in suspicious_patterns[receiver_str]:
-                    suspicious_patterns[receiver_str].append("fan_in")
-                break # Flagged once is enough
+                
+            if len(window_senders) > 10:
+                rec_id = str(receiver)
+                if rec_id not in suspicious_patterns: suspicious_patterns[rec_id] = []
+                suspicious_patterns[rec_id].append("smurfing_fan_in")
+                break
 
-    # Fan-out: >10 unique receivers from a sender in 72h
-    # Group by sender
-    for sender, group in df_sorted.groupby('sender_id'):
-        txs = list(zip(group['timestamp'], group['receiver_id']))
+    # Fan-out Detection (Optimized)
+    for sender, group in df.groupby('sender_id'):
+        if len(group) <= 10: continue
         
+        txs = group.sort_values('timestamp')[['timestamp', 'receiver_id']].values
         left = 0
-        unique_receivers = {} 
+        window_receivers = {}
         
         for right in range(len(txs)):
-            current_time = txs[right][0]
-            current_receiver = txs[right][1]
+            curr_time, curr_rec = txs[right]
+            window_receivers[curr_rec] = window_receivers.get(curr_rec, 0) + 1
             
-            unique_receivers[current_receiver] = unique_receivers.get(current_receiver, 0) + 1
-            
-            while left < right and (current_time - txs[left][0] > timedelta(hours=72)):
-                removed_receiver = txs[left][1]
-                unique_receivers[removed_receiver] -= 1
-                if unique_receivers[removed_receiver] == 0:
-                    del unique_receivers[removed_receiver]
+            while curr_time - txs[left][0] > pd.Timedelta(hours=72):
+                prev_rec = txs[left][1]
+                window_receivers[prev_rec] -= 1
+                if window_receivers[prev_rec] == 0:
+                    del window_receivers[prev_rec]
                 left += 1
-            
-            if len(unique_receivers) > 10:
-                sender_str = str(sender)
-                if sender_str not in suspicious_patterns:
-                    suspicious_patterns[sender_str] = []
-                if "fan_out" not in suspicious_patterns[sender_str]:
-                    suspicious_patterns[sender_str].append("fan_out")
-                break 
+                
+            if len(window_receivers) > 10:
+                snd_id = str(sender)
+                if snd_id not in suspicious_patterns: suspicious_patterns[snd_id] = []
+                suspicious_patterns[snd_id].append("smurfing_fan_out")
+                break
 
     return suspicious_patterns
 
+def detect_shell_networks(G: nx.DiGraph) -> List[List[str]]:
+    """
+    Detects chains of 3+ hops where intermediate nodes are 'shells' 
+    (low total transaction count: 2-3).
+    """
+    shells = []
+    # Pre-calculate transaction counts for each node (in + out)
+    tx_counts = {node: G.in_degree(node) + G.out_degree(node) for node in G.nodes()}
+    
+    # We look for simple paths of length 3 (4 nodes)
+    # where the middle 2 nodes are shells.
+    # For a path A -> B -> C -> D, B and C must have tx_count in [2, 3]
+    
+    potential_intermediates = [n for n, count in tx_counts.items() if 2 <= count <= 3]
+    
+    for node in potential_intermediates:
+        # Node must have at least one incoming and one outgoing to be 'intermediate'
+        if G.in_degree(node) >= 1 and G.out_degree(node) >= 1:
+            for pred in G.predecessors(node):
+                for succ in G.successors(node):
+                    if succ == pred: continue
+                    # Succ could be another intermediate shell
+                    if succ in potential_intermediates:
+                        for final_succ in G.successors(succ):
+                            if final_succ in [pred, node]: continue
+                            # Path found: pred -> node -> succ -> final_succ
+                            shells.append([pred, node, succ, final_succ])
+    
+    return shells
+
 def calculate_risk_score_ring(pattern_type: str, member_count: int) -> float:
-    # Basic scoring logic for rings
-    base_score = 80.0
-    if pattern_type == "cycle":
-        # shorter cycles are often more indicative of tight fraud, 
-        # but 3-5 are all bad. Let's say score increases with length slightly? 
-        # actually, usually tightness is riskier. Let's keep it simple.
-        return min(100.0, base_score + (member_count * 2))
-    return base_score
+    # Optimized scoring for RIFT 2026 specifications
+    if pattern_type.startswith("cycle_length_"):
+        return min(100.0, 85.0 + (member_count * 2))
+    if pattern_type == "shell_network_chain":
+        return min(100.0, 75.0 + (member_count * 3))
+    return 70.0
 
 # --- Main Endpoint ---
 
@@ -241,24 +242,46 @@ async def analyze_transactions(file: UploadFile = File(...)):
     G = build_graph(df)
     
     # 3. Detect Cycles (Rings)
-    cycles = detect_cycles(G)
+    cycles_with_patterns = detect_cycles(G) # Now returns (cycle_list, pattern_string)
+    
+    # 3b. Detect Shell Networks
+    shell_chains = detect_shell_networks(G)
     
     fraud_rings = []
-    account_ring_map = {} # account_id -> ring_id
+    account_ring_map = {} # account_id -> (ring_id, pattern_type)
     
-    for idx, cycle in enumerate(cycles):
+    # Process Cycles
+    for idx, (cycle, pattern_str) in enumerate(cycles_with_patterns):
         ring_id = f"RING_{idx+1:03d}"
-        risk_score = calculate_risk_score_ring("cycle", len(cycle))
+        risk_score = calculate_risk_score_ring(pattern_str, len(cycle))
         
         fraud_rings.append(FraudRing(
             ring_id=ring_id,
             member_accounts=cycle,
-            pattern_type="cycle",
+            pattern_type=pattern_str,
             risk_score=risk_score
         ))
         
         for member in cycle:
-            account_ring_map[member] = ring_id
+            account_ring_map[member] = (ring_id, pattern_str)
+
+    # Process Shell Networks
+    shell_offset = len(fraud_rings)
+    for idx, chain in enumerate(shell_chains):
+        ring_id = f"RING_SHELL_{idx+1+shell_offset:03d}"
+        pattern_str = "shell_network_chain"
+        risk_score = calculate_risk_score_ring(pattern_str, len(chain))
+        
+        fraud_rings.append(FraudRing(
+            ring_id=ring_id,
+            member_accounts=chain,
+            pattern_type=pattern_str,
+            risk_score=risk_score
+        ))
+        
+        for member in chain:
+            if member not in account_ring_map: # Prioritize cycle detection if an account is in both
+                account_ring_map[member] = (ring_id, pattern_str)
 
     # 4. Detect Smurfing
     smurfing_patterns = detect_smurfing(df)
@@ -271,34 +294,33 @@ async def analyze_transactions(file: UploadFile = File(...)):
         score = 0.0
         
         # Check if in a ring
-        in_ring = account in account_ring_map
-        if in_ring:
-            patterns.append(f"cycle_member")
+        if account in account_ring_map:
+            ring_id, pattern = account_ring_map[account]
+            patterns.append(pattern)
             score += 50
         
         # Check smurfing
         if account in smurfing_patterns:
             patterns.extend(smurfing_patterns[account])
-            if "fan_in" in smurfing_patterns[account]:
+            if "smurfing_fan_in" in smurfing_patterns[account]:
                 score += 30
-            if "fan_out" in smurfing_patterns[account]:
+            if "smurfing_fan_out" in smurfing_patterns[account]:
                 score += 30
         
+        # Check shell network membership (not in cycle but in shell chain)
+        if account in account_ring_map and account_ring_map[account][0].startswith("RING_SHELL"):
+            # pattern already added above
+            score += 40
+
         # Add to list if suspicious
         if score > 0:
-            # high velocity check (optional extra credit: simple count)
-            # if df[(df['sender_id'] == account) | (df['receiver_id'] == account)].shape[0] > 50:
-            #     patterns.append("high_velocity")
-            #     score += 10
-            
-            # Cap score
             score = min(100.0, score)
             
             suspicious_accounts.append(SuspiciousAccount(
                 account_id=account,
                 suspicion_score=score,
-                detected_patterns=patterns,
-                ring_id=account_ring_map.get(account)
+                detected_patterns=list(set(patterns)), # Deduplicate
+                ring_id=account_ring_map.get(account)[0] if account in account_ring_map else ""
             ))
     
     # Sort suspicious accounts by score (descending)

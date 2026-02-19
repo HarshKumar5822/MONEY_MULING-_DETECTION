@@ -18,6 +18,7 @@ const patternBadge: Record<string, { label: string; cls: string }> = {
   fan_in: { label: 'Fan-In', cls: 'bg-warning-dim text-warning border-warning/30' },
   fan_out: { label: 'Fan-Out', cls: 'bg-warning-dim text-warning border-warning/30' },
   shell_network: { label: 'Shell Net', cls: 'bg-primary-dim text-primary border-primary/30' },
+  shell_network_chain: { label: 'Shell Net', cls: 'bg-primary-dim text-primary border-primary/30' },
   layered_network: { label: 'Layered', cls: 'bg-primary-dim text-primary border-primary/30' },
 };
 
@@ -138,11 +139,10 @@ export function FraudTable({ fraudRings, onRingClick }: Props) {
               <button
                 key={i}
                 onClick={() => setPage(i)}
-                className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors border ${
-                  i === page
+                className={`w-7 h-7 flex items-center justify-center rounded-lg text-xs font-medium transition-colors border ${i === page
                     ? 'bg-primary text-primary-foreground border-primary shadow-blue'
                     : 'border-border text-muted-foreground hover:text-primary hover:border-primary/40'
-                }`}
+                  }`}
               >
                 {i + 1}
               </button>

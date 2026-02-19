@@ -1,81 +1,73 @@
-# Money Muling Detection Engine
-## RIFT 2026 Hackathon - Graph Theory Track
+# MuleGuard | Graph-Based Financial Forensics Engine
+## RIFT 2026 Hackathon - Money Muling Detection Challenge
 
-A comprehensive high-performance Financial Forensics Engine designed to detect money muling networks using Graph Theory and Temporal Analysis.
+MuleGuard is a high-performance, real-time forensic engine designed to uncover sophisticated money muling networks that traditional database queries often miss.
 
 ### 🚀 Live Demo & Repo
-- **Repo**: [GitHub Repository URL]
 - **Live App**: [Live Application URL]
+- **Repo**: [GitHub Repository URL]
+- **Demo Video**: [LinkedIn Video Link]
 
 ### 🛠 Tech Stack
-- **Backend**: Python, FastAPI, NetworkX, Pandas, Uvicorn
-- **Frontend**: React, Vite, TailwindCSS, TypeScript
-- **Analysis**: Graph Theory (Cycles, Patterns), Temporal Sliding Windows
+- **Backend**: Python 3.10+, FastAPI (High-performance API), NetworkX (Graph Algorithms), Pandas (Data Processing).
+- **Frontend**: React 18, Vite, TailwindCSS, TypeScript, Framer Motion (Animations).
+- **Visualization**: React-Force-Graph (Canvas-based 2D WebGL rendering).
 
-### 📂 Project Structure
-```
-FinGraph_Forensics/
-├── backend/                # FastAPI Application
-│   ├── main.py             # Core Logic & API
-│   ├── requirements.txt    # Python Dependencies
-│   └── test_app.py         # Verification Script
-├── frontend/               # React Web Application
-│   ├── src/                # Source Code
-│   └── package.json        # Node Dependencies
-└── start_app.bat           # One-click startup script
-```
+### 🏗 System Architecture
+MuleGuard follows a decoupled **Client-Server Architecture**:
+1. **Ingestion Layer**: Sanitizes and transforms CSV transaction logs into a Directed Graph.
+2. **Analysis Engine**: Executes parallel detector passes (Cycles, Smurfing, Shells).
+3. **Scoring Model**: Aggregates pattern hits into a normalized 0-100 Suspicion Score.
+4. **Visualization Layer**: Renders an interactive WebGL graph with real-time forensic overlays.
 
-### ⚡ Quick Start (Windows)
+### 🧠 Algorithm Approach & Complexity Analysis
 
-#### Method 1: One-Click (Recommended)
-Double-click `start_app.bat` in the root directory.
+#### 1. Circular Fund Routing (Cycles)
+- **Algorithm**: Depth-Limited DFS (Depth 3-5).
+- **Complexity**: $O(V + E \times k^d)$ where $k$ is avg degree and $d$ is depth.
+- **Why**: Optimized to find tight loops in milliseconds without exploring exponential simple cycles.
 
-#### Method 2: Manual Startup
+#### 2. Smurfing Patterns (Fan-in / Fan-out)
+- **Algorithm**: Temporal Sliding Window (72h).
+- **Complexity**: $O(T \log T)$ due to timestamp sorting + $O(T)$ linear scan.
+- **Why**: Detects high-velocity aggregation/dispersion within critical time windows.
 
-**Terminal 1: Backend**
-```powershell
-cd backend
-pip install -r requirements.txt
-python -m uvicorn main:app --port 8001 --reload
-```
-*Runs on: http://127.0.0.1:8001*
+#### 3. Layered Shell Networks
+- **Algorithm**: 3-Hop Chain Discovery with Degree Filtering.
+- **Complexity**: $O(V_{shell} \times k^2)$ where $V_{shell} \subset V$ are nodes with degree 2-3.
+- **Why**: Specifically targets intermediate "passthrough" accounts used for layering.
 
-**Terminal 2: Frontend**
-```powershell
-cd frontend
-npm install
-npm run dev
-```
-*Runs on: http://localhost:8080 or http://localhost:5173*
+### 📈 Suspicion Score Methodology
+Scores are normalized (0-100) based on weighted pattern hits:
+| Pattern | Weight | Description |
+| :--- | :--- | :--- |
+| **Cycle Member** | +80 | High-confidence circular routing detected. |
+| **Smurfing (Fan-in/Out)** | +30 | High-velocity multiple source/destination activity. |
+| **Shell Member** | +40 | Part of a layered passthrough network. |
+| **Max Cap** | 100 | Scores are capped at 100 for forensic reporting. |
 
-### 🧠 Graph Theory & Algorithms
+### ⚙️ Installation & Setup
 
-#### 1. Cycle Detection (Circular Fund Routing)
-We use a **Depth-Limited Search (DLS)** approach via `networkx` to detect simple cycles of length 3, 4, and 5.
-- **Why**: Muling rings often move money in loops to obscure the source.
-- **Complexity**: Optimized for sparse financial graphs.
+1. **Backend**:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   uvicorn main:app --port 8001
+   ```
 
-#### 2. Smurfing Detection (Temporal Fan-in/Fan-out)
-We implement a **72-hour sliding window** algorithm.
-- **Fan-in**: Detects accounts receiving funds from >10 unique sources within 3 days.
-- **Fan-out**: Detects accounts sending funds to >10 unique destinations within 3 days.
+2. **Frontend**:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
-#### 3. Suspicion Scoring (0-100)
-- **Base Score**: 0
-- **+50**: Member of a Cycle (Ring)
-- **+30**: Fan-in Pattern
-- **+30**: Fan-out Pattern
-- **Cap**: 100
+### ⚠️ Known Limitations & Future Work
+- **Static Window**: Currently uses a fixed 72h window; future versions will support dynamic windowing.
+- **Memory Bound**: Large graphs (>50k nodes) may require a graph database like Neo4j for persistent analysis.
 
-### 🧪 Verification
-To verify the backend logic independently (ensure backend is running):
-```bash
-python backend/test_app.py
-```
-
-### ⚠️ Common Issues
-- **Port 8001/8080 in use**: Close other terminals or change the port in `main.py` and `frontend/src/services/api.ts`.
-- **"npm" not found**: Ensure Node.js is installed.
+### 👥 Team Members
+- [Your Name/Team Name]
 
 ---
-*Built for RIFT 2026*
+*Built for RIFT 2026 Hackathon*

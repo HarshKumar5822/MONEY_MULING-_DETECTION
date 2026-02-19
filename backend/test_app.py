@@ -3,7 +3,7 @@ import json
 import time
 
 url = "http://127.0.0.1:8001/analyze"
-files = {'file': open('test_data.csv', 'rb')}
+files = {'file': open('mule_test_data.csv', 'rb')}
 
 try:
     print(f"Sending request to {url}...")
