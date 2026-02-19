@@ -4,8 +4,8 @@
 MuleGuard is a high-performance, real-time forensic engine designed to uncover sophisticated money muling networks that traditional database queries often miss.
 
 ### 🚀 Live Demo & Repo
-- **Live App**: [Live Application URL]
-- **Repo**: [GitHub Repository URL]
+- **Live App**: https://money-muling-detection-steel.vercel.app/
+- **Repo**: https://github.com/HarshKumar5822/MONEY_MULING-_DETECTION
 - **Demo Video**: [LinkedIn Video Link]
 
 ### 🛠 Tech Stack
@@ -67,7 +67,7 @@ Scores are normalized (0-100) based on weighted pattern hits:
 - **Memory Bound**: Large graphs (>50k nodes) may require a graph database like Neo4j for persistent analysis.
 
 ### 👥 Team Members
-- [Your Name/Team Name]
+- Harsh Kumar, Anmol Kumar - Code Heist
 
 ---
 *Built for RIFT 2026 Hackathon*
